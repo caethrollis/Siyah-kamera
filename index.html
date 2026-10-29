@@ -45,7 +45,7 @@ const say=t=>msg.textContent=t;
 async function openCam(){
   if(stream)stream.getTracks().forEach(t=>t.stop());
   try{
-    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:true});
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:{ideal:2},sampleRate:{ideal:48000}}});
     v.srcObject=stream;$('go').disabled=false;$('flip').disabled=false;$('cam').textContent='Kamera açık';say('');
   }catch(e){
     say('Kamera açılamadı: '+(e.name||e)+'. İzin ver ya da sayfayı Safari\'de aç.');
@@ -62,7 +62,7 @@ function pickType(){
 async function start(){
   if(!stream)return;
   const type=pickType();chunks=[];
-  try{rec=new MediaRecorder(stream,type?{mimeType:type}:{})}catch(e){say('Bu tarayıcı kayıt desteklemiyor.');return}
+  try{const o={audioBitsPerSecond:192000,videoBitsPerSecond:8000000};if(type)o.mimeType=type;rec=new MediaRecorder(stream,o)}catch(e){say('Bu tarayıcı kayıt desteklemiyor.');return}
   rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
   rec.onstop=finish;
   rec.start(1000);t0=Date.now();
