@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#000">
+<title>Kara Ekran Kamera</title>
+<style>
+:root{--bg:#000;--fg:#e8e8e8;--muted:#8a8a8a;--accent:#e5484d;--card:#161616;--line:#2a2a2a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#000;--fg:#e8e8e8}}
+:root[data-theme="dark"]{--bg:#000;--fg:#e8e8e8}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--fg);font:16px/1.4 -apple-system,system-ui,sans-serif;-webkit-user-select:none;user-select:none}
+main{max-width:520px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px;min-height:100%}
+h1{font-size:20px;margin:4px 0 0}
+p{margin:0;color:var(--muted);font-size:14px}
+video{width:100%;aspect-ratio:9/16;max-height:55vh;object-fit:cover;background:var(--card);border-radius:14px;border:1px solid var(--line)}
+.row{display:flex;gap:8px;flex-wrap:wrap}
+button{flex:1;min-height:52px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font-size:16px;font-weight:600}
+button.rec{background:var(--accent);border-color:var(--accent);color:#fff}
+button:disabled{opacity:.4}
+#msg{font-size:14px;color:var(--muted);min-height:20px}
+#black{position:fixed;inset:0;background:#000;z-index:10;display:none;touch-action:manipulation}
+#dot{position:absolute;left:50%;bottom:24px;width:4px;height:4px;margin-left:-2px;border-radius:50%;background:#1a0000}
+#list a{color:var(--fg)}
+</style>
+</head><body>
+<main>
+  <h1>Kara Ekran Kamera</h1>
+  <p>Kaydı başlatınca ekran simsiyah olur, kayıt sürer. Durdurmak için siyah ekrana hızlıca 2 kez dokun. Telefonu kilitleme.</p>
+  <video id="v" playsinline muted autoplay></video>
+  <div class="row">
+    <button id="cam">Kamerayı aç</button>
+    <button id="flip" disabled>Ön / Arka</button>
+  </div>
+  <div class="row">
+    <button id="go" class="rec" disabled>Kaydı başlat</button>
+  </div>
+  <div id="msg"></div>
+  <div id="list"></div>
+</main>
+<div id="black"><div id="dot"></div></div>
+<script>
+const $=id=>document.getElementById(id);
+const v=$('v'),msg=$('msg'),black=$('black');
+let stream=null,facing='environment',rec=null,chunks=[],lock=null,lastTap=0,t0=0;
+const say=t=>msg.textContent=t;
+
+async function openCam(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1920},height:{ideal:1080}},audio:true});
+    v.srcObject=stream;$('go').disabled=false;$('flip').disabled=false;$('cam').textContent='Kamera açık';say('');
+  }catch(e){
+    say('Kamera açılamadı: '+(e.name||e)+'. İzin ver ya da sayfayı Safari\'de aç.');
+  }
+}
+$('cam').onclick=openCam;
+$('flip').onclick=()=>{facing=facing==='environment'?'user':'environment';openCam()};
+
+function pickType(){
+  for(const t of['video/mp4;codecs=avc1','video/mp4','video/webm;codecs=vp9','video/webm'])
+    if(window.MediaRecorder&&MediaRecorder.isTypeSupported(t))return t;
+  return '';
+}
+async function start(){
+  if(!stream)return;
+  const type=pickType();chunks=[];
+  try{rec=new MediaRecorder(stream,type?{mimeType:type}:{})}catch(e){say('Bu tarayıcı kayıt desteklemiyor.');return}
+  rec.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};
+  rec.onstop=finish;
+  rec.start(1000);t0=Date.now();
+  try{lock=await navigator.wakeLock?.request('screen')}catch(e){}
+  black.style.display='block';
+}
+function stop(){
+  if(rec&&rec.state!=='inactive')rec.stop();
+  black.style.display='none';
+  try{lock?.release()}catch(e){};lock=null;
+}
+black.addEventListener('touchend',e=>{e.preventDefault();const n=Date.now();if(n-lastTap<400){stop()}lastTap=n},{passive:false});
+black.addEventListener('dblclick',stop);
+$('go').onclick=start;
+
+document.addEventListener('visibilitychange',async()=>{
+  if(document.visibilityState==='visible'&&rec&&rec.state==='recording'){try{lock=await navigator.wakeLock?.request('screen')}catch(e){}}
+});
+
+async function finish(){
+  const type=rec.mimeType||'video/mp4';
+  const ext=type.includes('webm')?'webm':'mp4';
+  const blob=new Blob(chunks,{type});
+  const sec=Math.round((Date.now()-t0)/1000);
+  const d=new Date(),p=n=>String(n).padStart(2,'0');
+  const name=`kayit-${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}.${ext}`;
+  say(`Kayıt bitti (${sec} sn). Kaydet'e bas.`);
+  const b=document.createElement('button');b.textContent='Kaydet: '+name;
+  b.onclick=()=>save(name,blob);
+  $('list').prepend(b);
+}
+async function save(name,blob){
+  const file=new File([blob],name,{type:blob.type||'video/mp4'});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){
+    try{await navigator.share({files:[file]});say('Tamam. Fotoğraflar\'a almak için paylaş menüsünde "Videoyu Kaydet"i seç.');return}
+    catch(e){if(e&&e.name==='AbortError'){say('Vazgeçildi.');return}}
+  }
+  let dl=null;
+  try{dl=await window.claude?.use?.('downloads')}catch(e){}
+  if(dl){
+    try{await dl.save({filename:name,data:blob});say('Kaydedildi.');return}
+    catch(e){if(e&&e.code==='declined'){say('Vazgeçildi.');return}}
+  }
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+  say('İndirildi (Dosyalar > İndirilenler).');
+}
+</script>
+</body></html>
